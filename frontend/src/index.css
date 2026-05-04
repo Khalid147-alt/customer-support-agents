@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply font-sans antialiased;
+  }
+  /* subtle scrollbar in the chat pane */
+  *::-webkit-scrollbar          { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track    { background: transparent; }
+  *::-webkit-scrollbar-thumb    { @apply bg-ink-700 rounded; }
+  *::-webkit-scrollbar-thumb:hover { @apply bg-ink-600; }
+}

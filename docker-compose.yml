@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: support_agent
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d support_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      # Override DATABASE_URL so the backend reaches Postgres via the compose network
+      # (overrides any localhost-pinned value from backend/.env).
+      DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD:-password}@postgres:5432/support_agent
+      CHROMA_DIR: /app/chroma_db
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./docs:/app/docs:ro
+      - chroma_data:/app/chroma_db
+      - hf_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # One-shot service: seeds the DB and ingests RAG docs, then exits.
+  # Run with:  docker-compose run --rm bootstrap
+  bootstrap:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD:-password}@postgres:5432/support_agent
+      CHROMA_DIR: /app/chroma_db
+    env_file:
+      - ./backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./docs:/app/docs:ro
+      - chroma_data:/app/chroma_db
+      - hf_cache:/root/.cache/huggingface
+    command: ["sh", "-c", "python -m db.seed && python -m rag.ingest"]
+    profiles: ["bootstrap"]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      # Vite dev-server proxy reads its target from this env var (see vite.config.js).
+      VITE_BACKEND_URL: http://backend:8000
+
+volumes:
+  postgres_data:
+  chroma_data:
+  hf_cache:
