@@ -15,7 +15,7 @@ import logging
 from datetime import date, timedelta
 from decimal import Decimal
 
-from db.connection import close_db_pool, get_pool, init_db_pool
+from db.adapter import close_db_pool, get_pool, init_db_pool
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s | %(message)s")
 logger = logging.getLogger("seed")

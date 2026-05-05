@@ -1,0 +1,31 @@
+# HuggingFace Spaces deployment — SQLite-only (no Postgres).
+# Mirror of requirements.txt with asyncpg replaced by aiosqlite.
+
+# --- FastAPI / web ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.9.2
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+
+# --- Database (SQLite via aiosqlite — no asyncpg on HF) ---
+aiosqlite>=0.19.0
+
+# --- LangGraph + Gemini ---
+langgraph==0.2.53
+langchain==0.3.9
+langchain-core==0.3.21
+langchain-community==0.3.9
+langchain-google-genai==2.0.6
+google-generativeai==0.8.3
+
+# --- MCP tool servers ---
+mcp==1.1.2
+
+# --- RAG ---
+chromadb==0.5.20
+sentence-transformers==3.3.1
+langchain-huggingface==0.1.2
+
+# --- Optional: Redis session memory ---
+redis==5.2.0

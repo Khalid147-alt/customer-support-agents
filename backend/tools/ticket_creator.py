@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from typing import Any, Literal
 
-from db.connection import get_pool
+from db.adapter import get_pool
 
 logger = logging.getLogger(__name__)
 

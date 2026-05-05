@@ -3,6 +3,11 @@
 // We use fetch + ReadableStream rather than EventSource because the backend
 // expects POST. Each event is `data: <json>\n\n`; the terminal sentinel is
 // the literal `data: [DONE]\n\n`.
+//
+// BASE is empty in dev (Vite proxy handles /chat and /health) and the full
+// HuggingFace Space URL in production (set via VITE_BACKEND_URL at build time).
+
+const BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 /**
  * Stream a chat completion from the FastAPI backend.
@@ -18,7 +23,7 @@
 export async function streamChat({ message, session_id, onToken, onDone, onError, signal }) {
   let res;
   try {
-    res = await fetch("/chat/stream", {
+    res = await fetch(`${BASE}/chat/stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

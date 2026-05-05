@@ -1,9 +1,17 @@
 """Application settings loaded from environment / .env via pydantic-settings."""
+import os
 from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_chroma_dir() -> str:
+    """Use /tmp on HuggingFace (read-only filesystem outside /tmp); ./chroma_db locally."""
+    if os.environ.get("ENVIRONMENT", "").lower() == "production":
+        return "/tmp/chroma_db"
+    return "./chroma_db"
 
 
 class Settings(BaseSettings):
@@ -15,13 +23,18 @@ class Settings(BaseSettings):
     )
 
     gemini_api_key: str = Field(..., description="Google AI Studio API key for Gemini 2.5")
-    database_url: str = Field(
-        ...,
+    # database_url is optional in SQLite mode (HuggingFace Spaces).
+    database_url: str | None = Field(
+        default=None,
         description="Postgres DSN, e.g. postgresql://admin:password@localhost:5432/support_agent",
     )
+    use_sqlite: bool = Field(
+        default=False,
+        description="When true, use the aiosqlite backend instead of asyncpg/Postgres.",
+    )
     chroma_dir: str = Field(
-        default="./chroma_db",
-        description="ChromaDB persistence directory (relative to backend/ or absolute).",
+        default_factory=_default_chroma_dir,
+        description="ChromaDB persistence directory. Defaults to /tmp/chroma_db in production.",
     )
     redis_url: str | None = Field(
         default=None,

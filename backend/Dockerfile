@@ -13,8 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# HuggingFace Spaces uses the SQLite backend — install that requirements file.
+# For local Postgres dev, build with --build-arg REQS=requirements.txt.
+ARG REQS=requirements.huggingface.txt
+COPY requirements.txt requirements.huggingface.txt ./
+RUN pip install --upgrade pip && pip install -r ${REQS}
 
 # Pre-download the embedding model so first-request latency in the container is
 # not blocked on a HuggingFace download. ~90 MB.
@@ -22,6 +25,6 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 
 COPY . .
 
-EXPOSE 8000
+EXPOSE 7860
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]

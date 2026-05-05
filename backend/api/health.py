@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from db.connection import get_pool
+from db.adapter import USE_SQLITE, get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,11 @@ router = APIRouter()
 @router.get("/health")
 async def health() -> dict[str, Any]:
     """Lightweight health check — confirms the API is up and DB is reachable."""
+    if USE_SQLITE:
+        # SQLite is file-backed and always available once the schema is applied
+        # at startup. No round-trip needed.
+        return {"status": "ok", "db": "sqlite"}
+
     db_state = "disconnected"
     try:
         pool = get_pool()

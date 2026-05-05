@@ -19,7 +19,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from db.connection import close_db_pool, init_db_pool
+from db.adapter import close_db_pool, init_db_pool
 from tools.order_lookup import get_order_status as _get_order_status
 from tools.product_info import get_product_info as _get_product_info
 from tools.ticket_creator import create_ticket as _create_ticket

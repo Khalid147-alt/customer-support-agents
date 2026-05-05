@@ -13,6 +13,10 @@ backend/.env
 chroma_db/
 backend/chroma_db/
 
+# SQLite (HuggingFace deploy)
+*.db
+*.sqlite
+
 # Node / Vite
 node_modules/
 frontend/dist/

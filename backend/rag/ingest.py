@@ -26,11 +26,12 @@ from config import get_settings
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s | %(message)s")
 logger = logging.getLogger("ingest")
 
-# Project layout: backend/rag/ingest.py is two levels under the repo root,
-# so docs/ is at ../../docs relative to this file.
+# Docs live under backend/docs/ so they're reachable from inside the Docker
+# image (which has backend/ as its build context). The repo also keeps a copy
+# at the repo root for browseability, but ingestion always reads the
+# backend-local copy.
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = BACKEND_DIR.parent
-DOCS_DIR = REPO_ROOT / "docs"
+DOCS_DIR = BACKEND_DIR / "docs"
 
 COLLECTION_NAME = "support_kb"
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -117,6 +118,11 @@ def ingest(persist_dir: str | Path) -> Chroma:
         len(chunks), COLLECTION_NAME, persist_dir,
     )
     return store
+
+
+def ingest_docs() -> Chroma:
+    """Ingest using the configured CHROMA_DIR. Used by the lifespan bootstrap."""
+    return ingest(get_settings().chroma_dir)
 
 
 def _smoke_query(store: Chroma, query: str) -> None:
