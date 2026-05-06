@@ -26,8 +26,8 @@ A portfolio-grade AI customer support agent for Khalid (Upwork / job-interview d
 | Tools transport           | **MCP `FastMCP` (stdio)** + **in-process** dual surface | MCP for protocol-correctness demo; in-process call path used by the agent at runtime to avoid round-trip latency. |
 | RAG store                 | ChromaDB (local persistence)                 | Pre-downloaded MiniLM model in Docker image.                       |
 | Embeddings                | `sentence-transformers/all-MiniLM-L6-v2`     | Normalized, CPU device.                                            |
-| DB driver                 | **asyncpg** (no ORM)                         | JSON/JSONB codec registered in `_init_connection`.                 |
-| Frontend                  | React 18 + Vite + Tailwind v3                | Vite proxy `/chat` and `/health` → backend. No CORS in dev.        |
+| DB driver                 | **asyncpg** (Postgres) **or aiosqlite** (HF Spaces) via `db/adapter.py` | Selected by `USE_SQLITE` env var. JSON/JSONB codec registered for asyncpg. |
+| Frontend                  | React 18 + Vite + Tailwind v3                | Vite proxy `/chat` and `/health` → backend in dev. Prod uses `VITE_BACKEND_URL` + open CORS. |
 | Streaming                 | LangGraph `astream_events(version="v2")` → FastAPI SSE → fetch+ReadableStream | Filter tokens by `metadata.langgraph_node == "respond"` to keep router structured-output JSON out of the UI. |
 | Workflow                  | Phased delivery; user reviews between phases | Phases 1–8 all complete.                                           |
 | Local env                 | Python 3.13 venv at `backend\.venv` + Docker for Postgres | Windows bash shell (Git Bash).                       |
@@ -79,13 +79,16 @@ customer-support-agent/
 ├── AGENTS.md                        ← Older context; superseded by this file but kept
 ├── README.md                        ← Public-facing portfolio README
 ├── docker-compose.yml               ← postgres + backend + bootstrap (one-shot) + frontend
-├── docs/                            ← RAG knowledge base (return_policy, shipping, faq…)
 ├── backend/
 │   ├── .env                         ← Real Gemini key lives here (gitignored)
-│   ├── Dockerfile                   ← Pre-downloads MiniLM; adds curl for healthcheck
-│   ├── requirements.txt
-│   ├── config.py                    ← Pydantic Settings — field is `gemini_api_key`
-│   ├── main.py                      ← FastAPI app + lifespan-managed asyncpg pool
+│   ├── .env.huggingface.example     ← Vars/secrets template for HF Spaces
+│   ├── .dockerignore                ← Slims build context for HF Spaces image
+│   ├── Dockerfile                   ← Pre-downloads MiniLM; EXPOSE 7860; ARG REQS picks reqs file
+│   ├── requirements.txt             ← Local/Postgres deps (asyncpg, etc.)
+│   ├── requirements.huggingface.txt ← HF Spaces deps (aiosqlite instead of asyncpg)
+│   ├── config.py                    ← Pydantic Settings — `gemini_api_key`, `use_sqlite`, /tmp default for chroma in prod
+│   ├── main.py                      ← FastAPI app + lifespan; auto-bootstraps schema/seed/RAG when USE_SQLITE=true; open CORS
+│   ├── docs/                        ← RAG knowledge base (return_policy, shipping_info, product_faq) — moved here for HF Spaces
 │   ├── _e2e_scenarios.sh            ← Reusable smoke test (5 master-spec scenarios)
 │   ├── _e2e_parse.py                ← SSE parser used by the bash driver
 │   ├── agent/
@@ -97,25 +100,31 @@ customer-support-agent/
 │   │   └── prompts.py               ← All system prompts as constants
 │   ├── api/
 │   │   ├── chat.py                  ← /chat/stream — SSE driver over astream_events v2
-│   │   └── health.py                ← /health — Postgres SELECT 1 probe
+│   │   └── health.py                ← /health — DB probe; safe when no Postgres pool
 │   ├── db/
-│   │   ├── schema.sql               ← users, products, orders, tickets (+ pgcrypto)
+│   │   ├── adapter.py               ← Re-exports init/close/get_pool from either backend based on USE_SQLITE
+│   │   ├── schema.sql               ← Postgres: users, products, orders, tickets (+ pgcrypto)
 │   │   ├── connection.py            ← asyncpg pool, JSON/JSONB codec registration
-│   │   └── seed.py                  ← Idempotent: 5 users, 10 products, 15 orders
+│   │   ├── seed.py                  ← Idempotent Postgres seed: 5 users, 10 products, 15 orders
+│   │   ├── sqlite_schema.sql        ← SQLite-flavored CREATE TABLE IF NOT EXISTS
+│   │   ├── sqlite_connection.py     ← aiosqlite pool shim with same get_pool() interface
+│   │   └── sqlite_seed.py           ← Idempotent SQLite seed (skips if rows exist)
 │   ├── rag/
-│   │   ├── ingest.py                ← DirectoryLoader→splitter→MiniLM→Chroma
+│   │   ├── ingest.py                ← DirectoryLoader→splitter→MiniLM→Chroma; resolves docs from backend/docs
 │   │   └── retriever.py             ← Async retrieve, diversity dedupe, cited_sources()
 │   └── tools/
-│       ├── order_lookup.py          ← Tool: lookup by ORD-YYYY-NNNN
-│       ├── product_info.py          ← Tool: lookup by SKU-NNN
-│       ├── ticket_creator.py        ← Tool: TKT-YYYY-NNNN, MAX+1 in transaction
+│       ├── order_lookup.py          ← Tool: lookup by ORD-YYYY-NNNN (uses db.adapter)
+│       ├── product_info.py          ← Tool: lookup by SKU-NNN (uses db.adapter)
+│       ├── ticket_creator.py        ← Tool: TKT-YYYY-NNNN, MAX+1 in transaction (uses db.adapter)
 │       └── mcp_server.py            ← FastMCP stdio server (demo surface)
 └── frontend/
-    ├── vite.config.js               ← /chat + /health proxy via VITE_BACKEND_URL
+    ├── vite.config.js               ← /chat + /health proxy via VITE_BACKEND_URL (dev)
+    ├── vercel.json                  ← SPA rewrite: /(.*) → /index.html
+    ├── .env.example                 ← VITE_BACKEND_URL template for Vercel
     ├── package.json
     └── src/
         ├── App.jsx                  ← localStorage-persistent session id (crypto.randomUUID)
-        ├── lib/api.js               ← streamChat: fetch + ReadableStream + TextDecoder SSE parser
+        ├── lib/api.js               ← streamChat: uses VITE_BACKEND_URL when set; fetch + ReadableStream SSE
         ├── hooks/useStream.js       ← {messages, isStreaming, sendMessage} + AbortController
         └── components/
             ├── ChatWindow.jsx       ← Sidebar + main pane + suggestion chips
@@ -137,6 +146,7 @@ customer-support-agent/
 - **Phase 6** ✅ FastAPI SSE streaming endpoint with `astream_events` v2 + node filtering
 - **Phase 7** ✅ React chat UI + `useStream` hook + Vite proxy
 - **Phase 8** ✅ Docker-compose with healthchecks, README polish, e2e scenarios verified
+- **Phase 9** ✅ Free public deployment: HuggingFace Spaces (backend, SQLite + auto-bootstrap) + Vercel (frontend, SPA rewrite, `VITE_BACKEND_URL`)
 
 ### The 5 verified e2e scenarios (last run all passed)
 
@@ -164,9 +174,11 @@ Run them anytime with: `cd backend && bash _e2e_scenarios.sh` (paced 18s apart f
 - Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
 - Wire format: `data: {type:"token",content}\n\n`, `data: {type:"done",sources,escalated,ticket_id}\n\n`, `data: [DONE]\n\n`.
 
-### Postgres / asyncpg
-- `_init_connection` registers `jsonb` and `json` codecs (encoder=`json.dumps`, decoder=`json.loads`, schema=`pg_catalog`). This means `dict` round-trips cleanly without any `::jsonb` casting in app code.
-- Tickets get IDs `TKT-YYYY-NNNN` via `MAX+1` inside a transaction (`ticket_creator.py`).
+### DB layer (dual-backend via `db/adapter.py`)
+- All app code imports `init_db_pool`, `close_db_pool`, `get_pool` from `db.adapter` — never from `connection` / `sqlite_connection` directly. The adapter switches on `USE_SQLITE`.
+- **Postgres path (default, local + Railway):** asyncpg pool. `_init_connection` registers `jsonb` and `json` codecs (encoder=`json.dumps`, decoder=`json.loads`, schema=`pg_catalog`) so `dict` round-trips cleanly without any `::jsonb` casting in app code. Schema is applied by `docker-entrypoint-initdb.d` at first Postgres startup.
+- **SQLite path (HuggingFace Spaces):** aiosqlite shim exposing the same `get_pool()` interface. Schema in `sqlite_schema.sql` is applied at lifespan startup; seeding via `sqlite_seed.py` is idempotent (skips if rows exist).
+- Tickets get IDs `TKT-YYYY-NNNN` via `MAX+1` inside a transaction (`ticket_creator.py`) — works on both backends.
 
 ### RAG
 - Splitter: `RecursiveCharacterTextSplitter(500, 50)`.
@@ -189,6 +201,25 @@ Run them anytime with: `cd backend && bash _e2e_scenarios.sh` (paced 18s apart f
 - Healthchecks: `pg_isready` on Postgres, `urllib /health` on backend.
 - Volumes: `postgres_data`, `chroma_data`, `hf_cache`.
 - Backend Dockerfile pre-downloads the MiniLM model (~90 MB) at build time so first-request latency in the container isn't blocked on a HuggingFace fetch.
+- `EXPOSE 7860` — HuggingFace Spaces convention. Compose still maps to host 8000.
+- `ARG REQS=requirements.huggingface.txt` — defaults to the SQLite-flavored deps for HF Spaces. For Postgres builds: `docker build --build-arg REQS=requirements.txt …`.
+
+### HuggingFace Spaces deployment (backend)
+- Space type: Docker. Push the repo; the Dockerfile is at `backend/Dockerfile`.
+- Env (set in Space → "Variables and secrets"; `GEMINI_API_KEY` must be a **Secret**):
+  - `GEMINI_API_KEY=<your key>` (secret)
+  - `USE_SQLITE=true`
+  - `CHROMA_DIR=/tmp/chroma_db` (HF filesystem is read-only outside `/tmp`)
+  - `ENVIRONMENT=production`
+  - `GEMINI_MODEL=gemini-2.5-flash`
+- Cold start (first request after a sleep): the FastAPI lifespan in `main.py` runs `_bootstrap_sqlite()` which (1) applies `sqlite_schema.sql`, (2) idempotently seeds users/products/orders, (3) ingests `backend/docs/` into Chroma at `CHROMA_DIR`. All three are safe to re-run.
+- `/health` is safe when there is no Postgres pool (it short-circuits in SQLite mode).
+
+### Vercel deployment (frontend)
+- `frontend/vercel.json` has the SPA rewrite (`/(.*) → /index.html`) so client-side routing works.
+- Set `VITE_BACKEND_URL=https://<hf-username>-customer-support-agent-backend.hf.space` as a Vercel project env var (Production + Preview).
+- `frontend/src/lib/api.js` reads `VITE_BACKEND_URL` and falls back to relative URLs (which is what the dev Vite proxy uses).
+- Backend has open CORS (`allow_origins=["*"]`) so the cross-origin Vercel→HF call works. Tighten to a known origin list before any high-traffic production use.
 
 ---
 
@@ -236,9 +267,9 @@ cd backend && bash _e2e_scenarios.sh
 
 ## 9. Open follow-ups (optional, not blocking)
 
-- Validate `docker-compose up -d --build` end-to-end and re-run the 5 scenarios against the containerized backend (in-progress when last paused).
-- Initialize git, write `.gitignore`, push to GitHub.
-- Deploy to Railway (compose-compatible; see README "Deployment notes").
+- Validate `docker-compose up -d --build` end-to-end and re-run the 5 scenarios against the containerized backend.
+- Push the `feat: HuggingFace + Vercel deployment ready` commit (`4d10f4a`) to a real HF Space + Vercel project and verify the 5 scenarios against the public URLs.
+- Tighten backend CORS from `*` to the known Vercel origin once the public URL is stable.
 - Record a 60–90s portfolio walkthrough video.
 
 ---
