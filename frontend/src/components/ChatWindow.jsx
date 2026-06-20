@@ -69,7 +69,7 @@ export function ChatWindow({ sessionId }) {
         <header className="border-b border-ink-800 bg-ink-900/60 px-6 py-3 backdrop-blur">
           <div className="text-sm font-semibold">Customer Support</div>
           <div className="text-xs text-ink-400">
-            Ask about returns, orders, products, or shipping.
+            Demo: AI customer support agent built with LangGraph + ChromaDB RAG. Ask about orders, returns, products, or shipping policies.
           </div>
         </header>
 
@@ -108,7 +108,7 @@ export function ChatWindow({ sessionId }) {
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Type your message…"
+              placeholder="Try: What is your return policy? or How do I track my order?"
               disabled={isStreaming}
               autoFocus
               className="flex-1 rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-ink-100 placeholder-ink-400 outline-none focus:border-accent-soft disabled:opacity-60"
